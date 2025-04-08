@@ -6,10 +6,16 @@
 #include <direct.h>
 #include <errno.h>
 
-#define LINE_LENGTH 1000000 // 1行分の最大長（大きめにする）
-#define FILENAME_TEMPLATE "C://Users//kimura//Downloads//short_solve//data//K=%d//par_L=%.4f,eta=%.4f//10000iteration.csv"
+// ★★★結果をCSVファイルに格納するためのコード(コメントでCSVと記載)が入っているので、不要であれば消してください。★★★
 
-// RW配列とZを読み取る関数（実際に読み取った要素数を返す）
+// CSV：read_RW関数で動的配列を設定するための定義（もしかしたら要らないかも）
+#define LINE_LENGTH 1000000 // 1行分の最大長（大きめにする）
+
+// CSV：CSVファイルを格納する場所を設定（★の部分を自由に変えてください）。Windows想定です。
+// パラメータを網羅的に動かして実験をするために、ファイル名がパラメータごとに変わるようになっています。
+#define FILENAME_TEMPLATE "C://Users//★★★//K=%d//par_L=%.4f,eta=%.4f//10000iteration.csv"
+
+// CSV：RW配列とZを読み取る関数（実際に読み取った要素数を返す）
 int read_RW(size_t K, double A, double B, double **RW, double *Z)
 {
     // MAX_ELEMENTS を 2 * K として動的に決定
@@ -84,6 +90,7 @@ int read_RW(size_t K, double A, double B, double **RW, double *Z)
     return i;   // 実際に読み取った要素数を返す
 }
 
+// CSV：ディレクトリを自動で作成する関数
 int create_parameter_directory(const char *base_dir, int K, double par_L, double eta, char *dirpath_out)
 {
     char *username = getenv("USERNAME");
@@ -803,7 +810,7 @@ void short_solve(
 
     double *RW_diff = (double *)malloc(2 * K * sizeof(double));
 
-    // 要素数取得&データ読み込み
+    // CSV：要素数取得&データ読み込み
     int valid_elements = read_RW(K, par_L, eta, &data_RW, &data_Z);
 
     for (size_t i = 0; i < K; ++i)
@@ -812,19 +819,7 @@ void short_solve(
         data_W[i] = data_RW[K + i];
     }
 
-    double shiken = 0.0;
-    for (size_t i = 0; i < 2 * K; i++)
-    {
-        if (data_RW[i] > shiken)
-        {
-            shiken = data_RW[i];
-        }
-    }
-
-    printf("shiken: %.10f\n", shiken);
-    printf("data_Z: %.10f\n", data_Z);
-
-    // ディレクトリ作成
+    // CSV：ディレクトリ作成(CSVファイルを格納するためのディレクトリを予め作らなくても済むように)
     char dirpath[256];
     if (create_parameter_directory("C:\\Users", K, par_L, eta, dirpath) != 0)
     {
@@ -832,16 +827,12 @@ void short_solve(
         exit(EXIT_FAILURE);
     }
 
-    // CSVファイルパス
+    // CSV：作成するCSVファイルのパスを設定
     char csv_filepath[512];
     snprintf(csv_filepath, sizeof(csv_filepath), "%s\\iteration_data.csv", dirpath);
 
-    // CSVファイルパス
-    // char csv_filepath[512];
-    // snprintf(csv_filepath, sizeof(csv_filepath), "%s\\10000iteration.csv", dirpath);
-
-    // CSVファイルを開く
-    FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード
+    // CSV：CSVファイルを開く
+    FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
     if (fp == NULL)
     {
         perror("Error opening file");
@@ -850,11 +841,8 @@ void short_solve(
 
     // ★★★ ヘッダーの書き込みは、ファイルが新規作成された場合のみ ★★★
     // ファイルポインタの位置が0 (ファイルの先頭) なら、ファイルは空
-    // if (ftell(fp) == 0)
-    // { 
-    //     fprintf(fp, "RW,Z\n");
-    // }
 
+    // csvファイルに結果を書き込む要素をここで決める
     if (ftell(fp) == 0)
     {
         fprintf(fp,"iteration,max_diff,R_max_diff,W_max_diff,Z_diff\n");
@@ -895,6 +883,8 @@ void short_solve(
         }
 
         // Step 3: 収束判定
+
+        //数値実験の結果として、変数の相対誤差を測定する
         double max_diff = 0.0;
         double R_max_diff = 0.0;
         double W_max_diff = 0.0;
@@ -918,6 +908,7 @@ void short_solve(
             }
         }
 
+        // 変数Rの相対誤差の最大値を測定
         for (size_t i = 0; i < K; i++)
         {
             double R_diff = fabs((data_R[i] - R[i]) / R[i]);
@@ -927,6 +918,7 @@ void short_solve(
             }
         }
 
+        // 変数Wの相対誤差の最大値を測定
         for (size_t i = 0; i < K; i++)
         {
             double W_diff = fabs((data_W[i] - W[i]) / W[i]);
@@ -936,8 +928,10 @@ void short_solve(
             }
         }
 
+        // 目的関数Zの相対誤差を測定
         double Z_diff = fabs((data_Z - Z_now) / Z_now);
 
+        // CSV：csvファイルに結果を書き込む
         fprintf(fp, "%d,%.16f,%.16f,%.16f,%.16f\n",
             k + 1, max_diff, R_max_diff, W_max_diff, Z_diff);
 
@@ -1004,24 +998,7 @@ void short_solve(
         }
     }
 
-    // double Z_result = Z_SD(K, S_bar, coef_pi, coef_v,
-    //                        alpha_P1, alpha_P2, beta_P1, beta_P2,
-    //                        RW, nE, m, T_n, dR, dW);
-
-    // // RWの値を縦に記録
-    // for (size_t i = 0; i < 2 * K; i++)
-    // {
-    //     fprintf(fp, "%.16f", RW[i]); // RWの値を記録
-
-    //     // 最初の行のみ Z を記録
-    //     if (i == 0)
-    //     {
-    //         fprintf(fp, ",%.16f", Z_result); // Z を記録
-    //     }
-
-    //     fprintf(fp, "\n"); // 改行
-    // }
-
+    // CSV：開いたCSVファイルを閉じる。
     fclose(fp);
 
     *g_out = g;
