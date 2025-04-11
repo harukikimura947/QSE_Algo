@@ -776,7 +776,7 @@ void short_solve(
     double *data_W = (double *)malloc(K * sizeof(double));
     double *R = (double *)malloc(K * sizeof(double));
     double *W = (double *)malloc(K * sizeof(double));
-    double *data_RW = NULL;
+    double *data_RW = (double *)malloc(2 * K * sizeof(double));
     double data_Z = 0;
     double *p_bar_before = (double *)malloc(2 * K * sizeof(double));
     double *p_bar = (double *)malloc(2 * K * sizeof(double));
@@ -811,7 +811,7 @@ void short_solve(
     double *RW_diff = (double *)malloc(2 * K * sizeof(double));
 
     // CSV：要素数取得&データ読み込み
-    int valid_elements = read_RW(K, par_L, eta, &data_RW, &data_Z);
+    // int valid_elements = read_RW(K, par_L, eta, &data_RW, &data_Z);
 
     for (size_t i = 0; i < K; ++i)
     {
@@ -820,33 +820,33 @@ void short_solve(
     }
 
     // CSV：ディレクトリ作成(CSVファイルを格納するためのディレクトリを予め作らなくても済むように)
-    char dirpath[256];
-    if (create_parameter_directory("C:\\Users", K, par_L, eta, dirpath) != 0)
-    {
-        fprintf(stderr, "Error creating directory\n");
-        exit(EXIT_FAILURE);
-    }
+    // char dirpath[256];
+    // if (create_parameter_directory("C:\\Users", K, par_L, eta, dirpath) != 0)
+    // {
+    //     fprintf(stderr, "Error creating directory\n");
+    //     exit(EXIT_FAILURE);
+    // }
 
     // CSV：作成するCSVファイルのパスを設定
-    char csv_filepath[512];
-    snprintf(csv_filepath, sizeof(csv_filepath), "%s\\iteration_data.csv", dirpath);
+    // char csv_filepath[512];
+    // snprintf(csv_filepath, sizeof(csv_filepath), "%s\\iteration_data.csv", dirpath);
 
     // CSV：CSVファイルを開く
-    FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
-    if (fp == NULL)
-    {
-        perror("Error opening file");
-        exit(EXIT_FAILURE);
-    }
+    // FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
+    // if (fp == NULL)
+    // {
+    //     perror("Error opening file");
+    //     exit(EXIT_FAILURE);
+    // }
 
     // ★★★ ヘッダーの書き込みは、ファイルが新規作成された場合のみ ★★★
     // ファイルポインタの位置が0 (ファイルの先頭) なら、ファイルは空
 
     // csvファイルに結果を書き込む要素をここで決める
-    if (ftell(fp) == 0)
-    {
-        fprintf(fp,"iteration,max_diff,R_max_diff,W_max_diff,Z_diff\n");
-    }
+    // if (ftell(fp) == 0)
+    // {
+    //     fprintf(fp,"iteration,max_diff,R_max_diff,W_max_diff,Z_diff\n");
+    // }
 
     for (int k = 0; k < short_itr; k++)
     {
@@ -870,6 +870,8 @@ void short_solve(
                          nE, m, T_n,
                          Z_SD_p_bar, p_proj, eta, L_before, dR, dW, p_bar_before);
 
+        // printf("L: %f\n", L);
+
         for (size_t i = 0; i < K; i++)
         {
             dRdW[i] = dR[i];
@@ -886,12 +888,12 @@ void short_solve(
 
         //数値実験の結果として、変数の相対誤差を測定する
         double max_diff = 0.0;
-        double R_max_diff = 0.0;
-        double W_max_diff = 0.0;
+        // double R_max_diff = 0.0;
+        // double W_max_diff = 0.0;
 
-        double Z_now = Z_SD(K, S_bar, coef_pi, coef_v,
-                        alpha_P1, alpha_P2, beta_P1, beta_P2,
-                        RW, nE, m, T_n, dR, dW);
+        // double Z_now = Z_SD(K, S_bar, coef_pi, coef_v,
+        //                 alpha_P1, alpha_P2, beta_P1, beta_P2,
+        //                 RW, nE, m, T_n, dR, dW);
 
         for (size_t i = 0; i < K; ++i)
         {
@@ -901,39 +903,53 @@ void short_solve(
 
         for (size_t i = 0; i < 2 * K; i++)
         {
-            double diff = fabs((data_RW[i] - RW[i]) / RW[i]);
+            double diff = fabs((RW[i] - RW_before[i]) / RW_before[i]);
             if (diff > max_diff)
             {
                 max_diff = diff;
             }
         }
 
-        // 変数Rの相対誤差の最大値を測定
-        for (size_t i = 0; i < K; i++)
-        {
-            double R_diff = fabs((data_R[i] - R[i]) / R[i]);
-            if (R_diff > R_max_diff)
-            {
-                R_max_diff = R_diff;
-            }
-        }
+        // if (max_diff < 1e-4)
+        // {
+        //     break;
+        // }
 
-        // 変数Wの相対誤差の最大値を測定
-        for (size_t i = 0; i < K; i++)
-        {
-            double W_diff = fabs((data_W[i] - W[i]) / W[i]);
-            if (W_diff > W_max_diff)
-            {
-                W_max_diff = W_diff;
-            }
-        }
+        // for (size_t i = 0; i < 2 * K; i++)
+        // {
+        //     double diff = fabs((data_RW[i] - RW[i]) / RW[i]);
+        //     if (diff > max_diff)
+        //     {
+        //         max_diff = diff;
+        //     }
+        // }
 
-        // 目的関数Zの相対誤差を測定
-        double Z_diff = fabs((data_Z - Z_now) / Z_now);
+        // // 変数Rの相対誤差の最大値を測定
+        // for (size_t i = 0; i < K; i++)
+        // {
+        //     double R_diff = fabs((data_R[i] - R[i]) / R[i]);
+        //     if (R_diff > R_max_diff)
+        //     {
+        //         R_max_diff = R_diff;
+        //     }
+        // }
+
+        // // 変数Wの相対誤差の最大値を測定
+        // for (size_t i = 0; i < K; i++)
+        // {
+        //     double W_diff = fabs((data_W[i] - W[i]) / W[i]);
+        //     if (W_diff > W_max_diff)
+        //     {
+        //         W_max_diff = W_diff;
+        //     }
+        // }
+
+        // // 目的関数Zの相対誤差を測定
+        // double Z_diff = fabs((data_Z - Z_now) / Z_now);
 
         // CSV：csvファイルに結果を書き込む
-        fprintf(fp, "%d,%.16f,%.16f,%.16f,%.16f\n",
-            k + 1, max_diff, R_max_diff, W_max_diff, Z_diff);
+        // fprintf(fp, "%d,%.16f,%.16f,%.16f,%.16f\n",
+        //     k + 1, max_diff, R_max_diff, W_max_diff, Z_diff);
 
         // Step 4: Adaptive restart
         short_dual_df(
@@ -958,6 +974,7 @@ void short_solve(
         if (RW_dot > 0)
         {
             t_before = 1.0;
+            // printf("restart on \n");
         }
 
         // Step 5: momentum項の計算
@@ -999,7 +1016,7 @@ void short_solve(
     }
 
     // CSV：開いたCSVファイルを閉じる。
-    fclose(fp);
+    // fclose(fp);
 
     *g_out = g;
 
