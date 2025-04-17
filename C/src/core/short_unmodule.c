@@ -6,6 +6,111 @@
 #include <direct.h>
 #include <errno.h>
 
+static size_t total_allocated = 0;
+
+void *my_malloc(size_t size)
+{
+    void *ptr = malloc(size + sizeof(size_t));
+    if (!ptr)
+        return NULL;
+    *((size_t *)ptr) = size;
+    total_allocated += size;
+    return (char *)ptr + sizeof(size_t);
+}
+
+void my_free(void *ptr)
+{
+    if (!ptr)
+        return;
+    void *real_ptr = (char *)ptr - sizeof(size_t);
+    size_t size = *((size_t *)real_ptr);
+    total_allocated -= size;
+    free(real_ptr);
+}
+
+size_t get_total_allocated()
+{
+    return total_allocated;
+}
+
+// メモリ割り当て量を観測するための設定。通常はコメントアウトしておく。
+#define malloc(size) my_malloc(size)
+#define free(ptr) my_free(ptr)
+
+// CSV：ディレクトリを自動で作成する関数
+int create_parameter_directory(const char *base_dir, int K, double par_L, double eta, char *dirpath_out)
+{
+    char *username = getenv("USERNAME");
+    if (username == NULL)
+    {
+        fprintf(stderr, "ユーザー名を取得できませんでした。\n");
+        return -1;
+    }
+
+    // 親ディレクトリ (Downloads) のパスを生成 (Windows用)
+    char parent_dir[256];
+    snprintf(parent_dir, sizeof(parent_dir), "C:\\Users\\%s\\github_repo\\QSE_Algo\\C\\data\\test", username); // ここを修正
+
+    // 親ディレクトリが存在しない場合は作成
+    if (_mkdir(parent_dir) == -1)
+    {
+        if (errno != EEXIST)
+        {
+            perror("_mkdir (parent)");
+            return -1;
+        }
+    }
+
+    // unmoduledディレクトリのパスを生成 (Windows用)
+    char unmoduled_dir[256];
+    snprintf(unmoduled_dir, sizeof(unmoduled_dir), "%s\\unmoduled", parent_dir);
+
+    if (_mkdir(unmoduled_dir) == -1)
+    {
+        if (errno != EEXIST)
+        {
+            perror("_mkdir (unmoduled)");
+            return -1;
+        }
+    }
+
+    // Kディレクトリのパスを生成 (Windows用)
+    char k_dir[256];
+    snprintf(k_dir, sizeof(k_dir), "%s\\K=%d", unmoduled_dir, K);
+
+    // Kディレクトリが存在しない場合は作成
+    if (_mkdir(k_dir) == -1)
+    {
+        if (errno != EEXIST)
+        {
+            perror("_mkdir (K dir)");
+            return -1;
+        }
+    }
+    // パラメータ付きディレクトリのパスを生成 (Windows用, par_L と eta)
+    char dirpath[256];
+    snprintf(dirpath, sizeof(dirpath), "%s\\par_L=%.4f,eta=%.4f", k_dir, par_L, eta);
+
+    // ディレクトリが存在しない場合は作成
+    if (_mkdir(dirpath) == -1)
+    {
+        if (errno != EEXIST)
+        {
+            perror("_mkdir");
+            return -1;
+        }
+    }
+
+    // 作成したディレクトリのパスを返す
+    if (dirpath_out != NULL)
+    {
+        strncpy(dirpath_out, dirpath, 256);
+        dirpath_out[255] = '\0';
+    }
+
+    return 0;
+}
+
 // ベクトル要素ごとの累乗
 void elementwise_pow(size_t size, double result[], const double vec[], double power)
 {
@@ -46,7 +151,6 @@ double sum_row_product(size_t size, double **mat, const double vec[])
     }
     return sum;
 }
-
 
 // 行列とベクトルの列方向の要素積と総和
 double sum_col_product(size_t size, double **mat, const double vec[])
@@ -93,6 +197,127 @@ void outer_product(size_t size, const double vec1[], const double vec2[], double
     }
 }
 
+double Z_SD(
+    size_t K, double S_bar,
+    double coef_pi, double coef_v,
+    double alpha_P1, double alpha_P2, double beta_P1, double beta_P2,
+    double RW[],
+    double nE[], double m[],
+    double **T_n,
+    double dR[], double dW[])
+{
+    // 動的配列の確保
+    double *R = (double *)malloc(K * sizeof(double));
+    double *W = (double *)malloc(K * sizeof(double));
+    double *R_inv = (double *)malloc(K * sizeof(double));
+    double *W_inv = (double *)malloc(K * sizeof(double));
+    double *R_inv_alpha = (double *)malloc(K * sizeof(double));
+    double *W_inv_alpha = (double *)malloc(K * sizeof(double));
+    double *R_inv_beta = (double *)malloc(K * sizeof(double));
+    double *W_inv_beta = (double *)malloc(K * sizeof(double));
+    double *W_T = (double *)malloc(K * sizeof(double));
+
+    // メモリ確保のエラーチェック
+    if (R == NULL || W == NULL || R_inv == NULL || W_inv == NULL ||
+        R_inv_alpha == NULL || W_inv_alpha == NULL || R_inv_beta == NULL ||
+        W_inv_beta == NULL || W_T == NULL)
+    {
+        fprintf(stderr, "メモリの確保に失敗しました\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // R と W を RW から初期化
+    for (size_t i = 0; i < K; ++i)
+    {
+        R[i] = RW[i];
+        W[i] = RW[K + i];
+    }
+
+    // Compute R_inv, W_inv
+    for (size_t i = 0; i < K; i++)
+    {
+        R_inv[i] = 1.0 / R[i];
+    }
+    for (size_t j = 0; j < K; j++)
+    {
+        W_inv[j] = 1.0 / W[j];
+    }
+
+    // Compute R_inv_alpha, W_inv_alpha, R_inv_beta, W_inv_beta
+    for (size_t i = 0; i < K; i++)
+    {
+        R_inv_alpha[i] = pow(R_inv[i], alpha_P1);
+        R_inv_beta[i] = pow(R_inv[i], beta_P1);
+    }
+    for (size_t j = 0; j < K; j++)
+    {
+        W_inv_alpha[j] = pow(W_inv[j], alpha_P2);
+        W_inv_beta[j] = pow(W_inv[j], beta_P2);
+    }
+
+    // Compute W_T
+    for (size_t i = 0; i < K; i++)
+    {
+        W_T[i] = 0.0;
+        for (size_t j = 0; j < K; j++)
+        {
+            W_T[i] += W_inv_alpha[j] * T_n[i][j];
+        }
+    }
+
+    // Compute Z_SD
+    double Z_SD = 0.0;
+    double Z_SD_1 = 0.0;
+    double Z_SD_2 = 0.0;
+    double Z_SD_3 = 0.0;
+    double Z_SD_4 = 0.0;
+
+    // First summation: beta-related term
+    for (size_t i = 0; i < K; i++)
+    {
+        Z_SD_1 += R_inv_beta[i] * W_inv_beta[i] * m[i];
+    }
+
+    Z_SD_1 *= coef_pi;
+
+    // Second summation: S_bar * R
+    for (size_t i = 0; i < K; i++)
+    {
+        Z_SD_2 += R[i];
+    }
+
+    Z_SD_2 *= S_bar;
+
+    // Third summation: W * nE
+    for (size_t j = 0; j < K; j++)
+    {
+        Z_SD_3 += W[j] * nE[j];
+    }
+
+    // Fourth summation: alpha-related term
+    for (size_t i = 0; i < K; i++)
+    {
+        Z_SD_4 += R_inv_alpha[i] * W_T[i];
+    }
+
+    Z_SD_4 *= coef_v;
+
+    Z_SD = Z_SD_1 + Z_SD_2 + Z_SD_3 + Z_SD_4;
+
+    // 動的配列の解放
+    free(R);
+    free(W);
+    free(R_inv);
+    free(W_inv);
+    free(R_inv_alpha);
+    free(W_inv_alpha);
+    free(R_inv_beta);
+    free(W_inv_beta);
+    free(W_T);
+
+    return Z_SD;
+}
+
 int main()
 {
     // 定数パラメータの定義
@@ -112,8 +337,8 @@ int main()
     const int short_itr = 1000;
 
     //--- 数値実験のパラメータと結果の配列 (例) ---
-    int K_list[] = {100};
-    double par_L[] = {0.20};
+    int K_list[] = {16};
+    double par_L[] = {0.0500};
     double eta[] = {1.5000};
 
     int num_K = sizeof(K_list) / sizeof(K_list[0]);
@@ -127,8 +352,6 @@ int main()
     {
         const size_t Col = sqrt(K_list[pk]);
         const size_t K = Col * Col;
-        printf("K: %d\n", K);
-        printf("2 * K: %d\n", 2 * K);
         const int int_Col = Col;
         const int int_K = int_Col * int_Col;
         const double Scaling = 10.0 / int_Col;
@@ -282,6 +505,7 @@ int main()
 
                 start = clock();
 
+                // #region: 動的配列の定義
                 double *RW_before = (double *)malloc(2 * K * sizeof(double));
                 double *RW = (double *)malloc(2 * K * sizeof(double));
                 double *R = (double *)malloc(K * sizeof(double));
@@ -318,42 +542,131 @@ int main()
 
                 double *RW_diff = (double *)malloc(2 * K * sizeof(double));
 
+                double *R_func = (double *)malloc(K * sizeof(double));
+                double *W_func = (double *)malloc(K * sizeof(double));
+                double *R_inv = (double *)malloc(K * sizeof(double));
+                double *W_inv = (double *)malloc(K * sizeof(double));
+                double *R_inv_alpha = (double *)malloc(K * sizeof(double));
+                double *R_inv_beta = (double *)malloc(K * sizeof(double));
+                double *W_inv_alpha = (double *)malloc(K * sizeof(double));
+                double *W_inv_beta = (double *)malloc(K * sizeof(double));
+                double *R_T = (double *)malloc(K * sizeof(double));
+                double *W_T = (double *)malloc(K * sizeof(double));
+
+                // メモリ確保のエラーチェック
+                if (R_func == NULL || W_func == NULL || R_inv == NULL || W_inv == NULL ||
+                    R_inv_alpha == NULL || R_inv_beta == NULL || W_inv_alpha == NULL ||
+                    W_inv_beta == NULL || R_T == NULL || W_T == NULL)
+                {
+                    fprintf(stderr, "メモリの確保に失敗しました\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                double *R_func2 = (double *)malloc(K * sizeof(double));
+                double *W_func2 = (double *)malloc(K * sizeof(double));
+                double *R_inv2 = (double *)malloc(K * sizeof(double));
+                double *W_inv2 = (double *)malloc(K * sizeof(double));
+                double *R_inv_alpha2 = (double *)malloc(K * sizeof(double));
+                double *R_inv_beta2 = (double *)malloc(K * sizeof(double));
+                double *W_inv_alpha2 = (double *)malloc(K * sizeof(double));
+                double *W_inv_beta2 = (double *)malloc(K * sizeof(double));
+                double *R_T2 = (double *)malloc(K * sizeof(double));
+                double *W_T2 = (double *)malloc(K * sizeof(double));
+
+                // メモリ確保のエラーチェック
+                if (R_func2 == NULL || W_func2 == NULL || R_inv2 == NULL || W_inv2 == NULL ||
+                    R_inv_alpha2 == NULL || R_inv_beta2 == NULL || W_inv_alpha2 == NULL ||
+                    W_inv_beta2 == NULL || R_T2 == NULL || W_T2 == NULL)
+                {
+                    fprintf(stderr, "メモリの確保に失敗しました\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                double *R_func3 = (double *)malloc(K * sizeof(double));
+                double *W_func3 = (double *)malloc(K * sizeof(double));
+                double *R_inv3 = (double *)malloc(K * sizeof(double));
+                double *W_inv3 = (double *)malloc(K * sizeof(double));
+                double *R_inv_alpha3 = (double *)malloc(K * sizeof(double));
+                double *R_inv_beta3 = (double *)malloc(K * sizeof(double));
+                double *W_inv_alpha3 = (double *)malloc(K * sizeof(double));
+                double *W_inv_beta3 = (double *)malloc(K * sizeof(double));
+                double *R_T3 = (double *)malloc(K * sizeof(double));
+                double *W_T3 = (double *)malloc(K * sizeof(double));
+
+                // メモリ確保のエラーチェック
+                if (R_func3 == NULL || W_func3 == NULL || R_inv3 == NULL || W_inv3 == NULL ||
+                    R_inv_alpha3 == NULL || R_inv_beta3 == NULL || W_inv_alpha3 == NULL ||
+                    W_inv_beta3 == NULL || R_T3 == NULL || W_T3 == NULL)
+                {
+                    fprintf(stderr, "メモリの確保に失敗しました\n");
+                    exit(EXIT_FAILURE);
+                }
+                // #endregion
+
+                // #region: CSV用コード
+
+                // CSV：要素数取得&データ読み込み
+                // int valid_elements = read_RW(K, par_L, eta, &data_RW, &data_Z);
+
+                // for (size_t i = 0; i < K; ++i)
+                // {
+                //     data_R[i] = data_RW[i];
+                //     data_W[i] = data_RW[K + i];
+                // }
+
+                // CSV：ディレクトリ作成(CSVファイルを格納するためのディレクトリを予め作らなくても済むように)
+                char dirpath[256];
+                if (create_parameter_directory("C:\\Users", K, par_L[p1], eta[p2], dirpath) != 0)
+                {
+                    fprintf(stderr, "Error creating directory\n");
+                    exit(EXIT_FAILURE);
+                }
+
+                // CSV：作成するCSVファイルのパスを設定
+                char csv_filepath[512];
+
+                // B.真値記録用ファイルのパス
+                snprintf(csv_filepath, sizeof(csv_filepath), "%s\\test_data.csv", dirpath);
+
+                // CSV：CSVファイルを開く
+                FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
+                if (fp == NULL)
+                {
+                    perror("Error opening file");
+                    exit(EXIT_FAILURE);
+                }
+
+                // ★★★ ヘッダーの書き込みは、ファイルが新規作成された場合のみ ★★★
+                // ファイルポインタの位置が0 (ファイルの先頭) なら、ファイルは空
+
+                // csvファイルに結果を書き込む要素を以下で決める
+
+                // B.真値記録用ファイルのパス
+                if (ftell(fp) == 0)
+                {
+                    fprintf(fp, "RW,Z\n");
+                }
+                // #endregion
+
+                printf("[MEM] メモリ確保後: %zu bytes\n", get_total_allocated());
+
                 for (int k = 0; k < short_itr; k++)
                 {
 
-                    // effi_grad_Z関数====================================================================
-                    // 動的配列の確保
+                    // #region: effi_grad_Z関数====================================================================
 
-                    // double *R_func = (double *)malloc(K * sizeof(double));
-                    // double *W_func = (double *)malloc(K * sizeof(double));
-                    // double *R_inv = (double *)malloc(K * sizeof(double));
-                    // double *W_inv = (double *)malloc(K * sizeof(double));
-                    // double *R_inv_alpha = (double *)malloc(K * sizeof(double));
-                    // double *R_inv_beta = (double *)malloc(K * sizeof(double));
-                    // double *W_inv_alpha = (double *)malloc(K * sizeof(double));
-                    // double *W_inv_beta = (double *)malloc(K * sizeof(double));
-                    // double *R_T = (double *)malloc(K * sizeof(double));
-                    // double *W_T = (double *)malloc(K * sizeof(double));
-
-                    // // メモリ確保のエラーチェック
-                    // if (R_func == NULL || W_func == NULL || R_inv == NULL || W_inv == NULL ||
-                    //     R_inv_alpha == NULL || R_inv_beta == NULL || W_inv_alpha == NULL ||
-                    //     W_inv_beta == NULL || R_T == NULL || W_T == NULL)
-                    // {
-                    //     fprintf(stderr, "メモリの確保に失敗しました\n");
-                    //     exit(EXIT_FAILURE);
-                    // }
-
-                    double R_func[K];
-                    double W_func[K];
-                    double R_inv[K];
-                    double W_inv[K];
-                    double R_inv_alpha[K];
-                    double R_inv_beta[K];
-                    double W_inv_alpha[K];
-                    double W_inv_beta[K];
-                    double R_T[K];
-                    double W_T[K];
+                    // #region: 静的ver.
+                    // double R_func[K];
+                    // double W_func[K];
+                    // double R_inv[K];
+                    // double W_inv[K];
+                    // double R_inv_alpha[K];
+                    // double R_inv_beta[K];
+                    // double W_inv_alpha[K];
+                    // double W_inv_beta[K];
+                    // double R_T[K];
+                    // double W_T[K];
+                    // #endregion
 
                     // R と W を RW から初期化
                     for (size_t i = 0; i < K; ++i)
@@ -455,18 +768,7 @@ int main()
 
                     Z_SD_p_bar = Z_SD_1 + Z_SD_2 + Z_SD_3 + Z_SD_4;
 
-                    // free(R_func);
-                    // free(W_func);
-                    // free(R_inv);
-                    // free(W_inv);
-                    // free(R_inv_alpha);
-                    // free(W_inv_alpha);
-                    // free(R_inv_beta);
-                    // free(W_inv_beta);
-                    // free(R_T);
-                    // free(W_T);
-
-                    // effi_grad_Z関数終了====================================================================
+                    // #endregion: effi_grad_Z関数終了====================================================================
 
                     // backtracking関数======================================================================
                     double L_bar = L_before;
@@ -504,36 +806,18 @@ int main()
 
                         // 判定条件
                         // Z_SD関数==================================================================
-                        // double *R_func2 = (double *)malloc(K * sizeof(double));
-                        // double *W_func2 = (double *)malloc(K * sizeof(double));
-                        // double *R_inv2 = (double *)malloc(K * sizeof(double));
-                        // double *W_inv2 = (double *)malloc(K * sizeof(double));
-                        // double *R_inv_alpha2 = (double *)malloc(K * sizeof(double));
-                        // double *R_inv_beta2 = (double *)malloc(K * sizeof(double));
-                        // double *W_inv_alpha2 = (double *)malloc(K * sizeof(double));
-                        // double *W_inv_beta2 = (double *)malloc(K * sizeof(double));
-                        // double *R_T2 = (double *)malloc(K * sizeof(double));
-                        // double *W_T2 = (double *)malloc(K * sizeof(double));
-
-                        // // メモリ確保のエラーチェック
-                        // if (R_func2 == NULL || W_func2 == NULL || R_inv2 == NULL || W_inv2 == NULL ||
-                        //     R_inv_alpha2 == NULL || R_inv_beta2 == NULL || W_inv_alpha2 == NULL ||
-                        //     W_inv_beta2 == NULL || R_T2 == NULL || W_T2 == NULL)
-                        // {
-                        //     fprintf(stderr, "メモリの確保に失敗しました\n");
-                        //     exit(EXIT_FAILURE);
-                        // }
-
-                        double R_func2[K];
-                        double W_func2[K];
-                        double R_inv2[K];
-                        double W_inv2[K];
-                        double R_inv_alpha2[K];
-                        double R_inv_beta2[K];
-                        double W_inv_alpha2[K];
-                        double W_inv_beta2[K];
-                        double R_T2[K];
-                        double W_T2[K];
+                        // #region: 静的ver.
+                        // double R_func2[K];
+                        // double W_func2[K];
+                        // double R_inv2[K];
+                        // double W_inv2[K];
+                        // double R_inv_alpha2[K];
+                        // double R_inv_beta2[K];
+                        // double W_inv_alpha2[K];
+                        // double W_inv_beta2[K];
+                        // double R_T2[K];
+                        // double W_T2[K];
+                        // #endregion: 静的ver.
 
                         // R と W を RW から初期化
                         for (size_t i = 0; i < K; ++i)
@@ -613,16 +897,6 @@ int main()
 
                         Z_SD_p = Z_SD_1 + Z_SD_2 + Z_SD_3 + Z_SD_4;
 
-                        // free(R_func2);
-                        // free(W_func2);
-                        // free(R_inv2);
-                        // free(W_inv2);
-                        // free(R_inv_alpha2);
-                        // free(W_inv_alpha2);
-                        // free(R_inv_beta2);
-                        // free(W_inv_beta2);
-                        // free(R_T2);
-                        // free(W_T2);
                         // Z_SD関数終了===============================================================
 
                         double norm_squared = 0.0;
@@ -660,7 +934,7 @@ int main()
                         dRdW[i + K] = dW[i];
                     }
 
-                    printf("L: %f\n", L);
+                    // printf("L: %f\n", L);
 
                     // Step 2: 解の更新
                     for (size_t i = 0; i < 2 * K; i++)
@@ -681,44 +955,26 @@ int main()
                         }
                     }
 
-                    if (max_diff < 1e-4)
-                    {
-                        break;
-                    }
+                    // if (max_diff < 1e-4)
+                    // {
+                    //     break;
+                    // }
 
                     // Step 4: Adaptive restart
                     // short_dual_df関数===================================================================
 
-                    // double *R_func3 = (double *)malloc(K * sizeof(double));
-                    // double *W_func3 = (double *)malloc(K * sizeof(double));
-                    // double *R_inv3 = (double *)malloc(K * sizeof(double));
-                    // double *W_inv3 = (double *)malloc(K * sizeof(double));
-                    // double *R_inv_alpha3 = (double *)malloc(K * sizeof(double));
-                    // double *R_inv_beta3 = (double *)malloc(K * sizeof(double));
-                    // double *W_inv_alpha3 = (double *)malloc(K * sizeof(double));
-                    // double *W_inv_beta3 = (double *)malloc(K * sizeof(double));
-                    // double *R_T3 = (double *)malloc(K * sizeof(double));
-                    // double *W_T3 = (double *)malloc(K * sizeof(double));
-
-                    // // メモリ確保のエラーチェック
-                    // if (R_func3 == NULL || W_func3 == NULL || R_inv3 == NULL || W_inv3 == NULL ||
-                    //     R_inv_alpha3 == NULL || R_inv_beta3 == NULL || W_inv_alpha3 == NULL ||
-                    //     W_inv_beta3 == NULL || R_T3 == NULL || W_T3 == NULL)
-                    // {
-                    //     fprintf(stderr, "メモリの確保に失敗しました\n");
-                    //     exit(EXIT_FAILURE);
-                    // }
-
-                    double R_func3[K];
-                    double W_func3[K];
-                    double R_inv3[K];
-                    double W_inv3[K];
-                    double R_inv_alpha3[K];
-                    double R_inv_beta3[K];
-                    double W_inv_alpha3[K];
-                    double W_inv_beta3[K];
-                    double R_T3[K];
-                    double W_T3[K];
+                    // #region: 静的ver.
+                    // double R_func3[K];
+                    // double W_func3[K];
+                    // double R_inv3[K];
+                    // double W_inv3[K];
+                    // double R_inv_alpha3[K];
+                    // double R_inv_beta3[K];
+                    // double W_inv_alpha3[K];
+                    // double W_inv_beta3[K];
+                    // double R_T3[K];
+                    // double W_T3[K];
+                    // #endregion: 静的ver.
 
                     // R と W を RW から初期化
                     for (size_t i = 0; i < K; ++i)
@@ -771,26 +1027,16 @@ int main()
                     // Compute gradient dZ/dR
                     for (size_t i = 0; i < K; i++)
                     {
-                        dR[i] = S_bar - (coef_R_alpha * R_inv3[i] * R_inv_alpha3[i] * W_T3[i]) - (coef_R_beta * R_inv3[i] * R_inv_beta3[i] * W_inv_beta3[i] * m0[i]);
+                        dR_dot[i] = S_bar - (coef_R_alpha * R_inv3[i] * R_inv_alpha3[i] * W_T3[i]) - (coef_R_beta * R_inv3[i] * R_inv_beta3[i] * W_inv_beta3[i] * m0[i]);
                     }
 
                     // Compute gradient dZ/dW
                     for (size_t j = 0; j < K; j++)
                     {
-                        dW[j] = nE[j] - (coef_W_alpha * W_inv3[j] * W_inv_alpha3[j] * R_T3[j]) - (coef_W_beta * W_inv3[j] * W_inv_beta3[j] * R_inv_beta3[j] * m0[j]);
+                        dW_dot[j] = nE[j] - (coef_W_alpha * W_inv3[j] * W_inv_alpha3[j] * R_T3[j]) - (coef_W_beta * W_inv3[j] * W_inv_beta3[j] * R_inv_beta3[j] * m0[j]);
                     }
 
                     // 動的配列の解放
-                    // free(R_func3);
-                    // free(W_func3);
-                    // free(R_inv3);
-                    // free(W_inv3);
-                    // free(R_inv_alpha3);
-                    // free(W_inv_alpha3);
-                    // free(R_inv_beta3);
-                    // free(W_inv_beta3);
-                    // free(R_T3);
-                    // free(W_T3);
 
                     // short_dual_df関数終了============================================================
 
@@ -810,7 +1056,7 @@ int main()
                     if (RW_dot > 0)
                     {
                         t_before = 1.0;
-                        printf("restart on \n");
+                        // printf("restart on \n");
                     }
 
                     // Step 5: momentum項の計算
@@ -835,8 +1081,6 @@ int main()
 
                     g++;
 
-                    printf("g: %d\n", g);
-
                     if (g == short_itr + 1)
                     {
                         for (size_t i = 0; i < 2 * K; i++)
@@ -853,11 +1097,34 @@ int main()
                     }
                 }
 
+                // #region: 真値記録用
+                double Z_result = Z_SD(K, S_bar, coef_pi, coef_v,
+                                       alpha_P1, alpha_P2, beta_P1, beta_P2,
+                                       RW, nE, m0, T_n, dR, dW);
+
+                // RWの値を縦に記録
+                for (size_t i = 0; i < 2 * K; i++)
+                {
+                    fprintf(fp, "%.16f", RW[i]); // RWの値を記録
+
+                    // 最初の行のみ Z を記録
+                    if (i == 0)
+                    {
+                        fprintf(fp, ",%.16f", Z_result); // Z を記録
+                    }
+
+                    fprintf(fp, "\n"); // 改行
+                }
+                // #endregion
+
+                // CSV：開いたCSVファイルを閉じる。
+                fclose(fp);
+
                 // *g_out = g;
 
                 printf("g: %d\n", g);
 
-                // メモリの解放
+                // #region: メモリの解放
                 free(RW_before);
                 free(R);
                 free(W);
@@ -871,6 +1138,39 @@ int main()
                 free(dW_dot);
                 free(dRdW_dot);
                 free(RW_diff);
+                free(R_func);
+                free(W_func);
+                free(R_inv);
+                free(W_inv);
+                free(R_inv_alpha);
+                free(W_inv_alpha);
+                free(R_inv_beta);
+                free(W_inv_beta);
+                free(R_T);
+                free(W_T);
+                free(R_func2);
+                free(W_func2);
+                free(R_inv2);
+                free(W_inv2);
+                free(R_inv_alpha2);
+                free(W_inv_alpha2);
+                free(R_inv_beta2);
+                free(W_inv_beta2);
+                free(R_T2);
+                free(W_T2);
+                free(R_func3);
+                free(W_func3);
+                free(R_inv3);
+                free(W_inv3);
+                free(R_inv_alpha3);
+                free(W_inv_alpha3);
+                free(R_inv_beta3);
+                free(W_inv_beta3);
+                free(R_T3);
+                free(W_T3);
+                // #endregion
+
+                printf("[MEM] メモリ解法後: %zu bytes\n", get_total_allocated());
 
                 end = clock();
                 cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;

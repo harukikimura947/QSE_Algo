@@ -8,12 +8,43 @@
 
 // ★★★結果をCSVファイルに格納するためのコード(コメントでCSVと記載)が入っているので、不要であれば消してください。★★★
 
+static size_t total_allocated = 0;
+
+void *my_malloc(size_t size)
+{
+    void *ptr = malloc(size + sizeof(size_t));
+    if (!ptr)
+        return NULL;
+    *((size_t *)ptr) = size;
+    total_allocated += size;
+    return (char *)ptr + sizeof(size_t);
+}
+
+void my_free(void *ptr)
+{
+    if (!ptr)
+        return;
+    void *real_ptr = (char *)ptr - sizeof(size_t);
+    size_t size = *((size_t *)real_ptr);
+    total_allocated -= size;
+    free(real_ptr);
+}
+
+size_t get_total_allocated()
+{
+    return total_allocated;
+}
+
+// メモリ割り当て量を観測するための設定。通常はコメントアウトしておく。
+#define malloc(size) my_malloc(size)
+#define free(ptr) my_free(ptr)
+
 // CSV：read_RW関数で動的配列を設定するための定義（もしかしたら要らないかも）
 #define LINE_LENGTH 1000000 // 1行分の最大長（大きめにする）
 
 // CSV：CSVファイルを格納する場所を設定（★の部分を自由に変えてください）。Windows想定です。
 // パラメータを網羅的に動かして実験をするために、ファイル名がパラメータごとに変わるようになっています。
-#define FILENAME_TEMPLATE "C://Users//★★★//K=%d//par_L=%.4f,eta=%.4f//10000iteration.csv"
+#define FILENAME_TEMPLATE "C://Users//★★★//K=%d//par_L=%.4f,eta=%.4f//1000iteration.csv"
 
 // CSV：RW配列とZを読み取る関数（実際に読み取った要素数を返す）
 int read_RW(size_t K, double A, double B, double **RW, double *Z)
@@ -102,7 +133,7 @@ int create_parameter_directory(const char *base_dir, int K, double par_L, double
 
     // 親ディレクトリ (Downloads) のパスを生成 (Windows用)
     char parent_dir[256];
-    snprintf(parent_dir, sizeof(parent_dir), "C:\\Users\\%s\\Downloads", username); // ここを修正
+    snprintf(parent_dir, sizeof(parent_dir), "C:\\Users\\%s\\github_repo\\QSE_Algo\\C\\data\\test", username); // ここを修正
 
     // 親ディレクトリが存在しない場合は作成
     if (_mkdir(parent_dir) == -1)
@@ -114,17 +145,22 @@ int create_parameter_directory(const char *base_dir, int K, double par_L, double
         }
     }
 
-    // short_solve ディレクトリのパスを生成 (Windows用)
-    char short_dir[256];
-    snprintf(short_dir, sizeof(short_dir), "%s\\short_solve", parent_dir);
+    // moduledディレクトリのパスを生成 (Windows用)
+    char moduled_dir[256];
+    snprintf(moduled_dir, sizeof(moduled_dir), "%s\\moduled", parent_dir);
 
-    // data ディレクトリのパスを生成 (Windows用)
-    char data_dir[256];
-    snprintf(data_dir, sizeof(data_dir), "%s\\data", short_dir);
+    if (_mkdir(moduled_dir) == -1)
+    {
+        if (errno != EEXIST)
+        {
+            perror("_mkdir (moduled)");
+            return -1;
+        }
+    }
 
     // Kディレクトリのパスを生成 (Windows用)
     char k_dir[256];
-    snprintf(k_dir, sizeof(k_dir), "%s\\K=%d", data_dir, K);
+    snprintf(k_dir, sizeof(k_dir), "%s\\K=%d", moduled_dir, K);
 
     // Kディレクトリが存在しない場合は作成
     if (_mkdir(k_dir) == -1)
@@ -140,7 +176,7 @@ int create_parameter_directory(const char *base_dir, int K, double par_L, double
     char dirpath[256];
     snprintf(dirpath, sizeof(dirpath), "%s\\par_L=%.4f,eta=%.4f", k_dir, par_L, eta);
 
-    // パラメータ付きディレクトリを作成
+    // ディレクトリが存在しない場合は作成
     if (_mkdir(dirpath) == -1)
     {
         if (errno != EEXIST)
@@ -386,16 +422,16 @@ void equilibrium(
             dR_max = fabs(dR_equ[i]);
         }
     }
-    printf("dRの最大値: %.16f\n", dR_max);
+    printf("|dR|の最大値: %.16f\n", dR_max);
 
     // 平均値を求める
     double dR_sum = 0.0;
     for (size_t i = 0; i < K; i++)
     {
-        dR_sum += dR_equ[i];
+        dR_sum += fabs(dR_equ[i]);
     }
     double dR_average = dR_sum / K;
-    printf("dRの平均値: %.16f\n", dR_average);
+    printf("|dR|の平均値: %.16f\n", dR_average);
 
     // 最大値を求める
     double dW_max = fabs(dW_equ[0]); // 最初の要素を仮の最大値とする
@@ -406,16 +442,16 @@ void equilibrium(
             dW_max = fabs(dW_equ[i]);
         }
     }
-    printf("dWの最大値: %.16f\n", dW_max);
+    printf("|dW|の最大値: %.16f\n", dW_max);
 
     // 平均値を求める
     double dW_sum = 0.0;
     for (size_t i = 0; i < K; i++)
     {
-        dW_sum += dW_equ[i];
+        dW_sum += fabs(dW_equ[i]);
     }
     double dW_average = dW_sum / K;
-    printf("dWの平均値: %.16f\n", dW_average);
+    printf("|dW|の平均値: %.16f\n", dW_average);
 
     // 動的配列の解放
     free(dR_equ);
@@ -772,12 +808,12 @@ void short_solve(
 {
     double *RW_before = (double *)malloc(2 * K * sizeof(double));
     double *RW = (double *)malloc(2 * K * sizeof(double));
-    double *data_R = (double *)malloc(K * sizeof(double));
-    double *data_W = (double *)malloc(K * sizeof(double));
+    // double *data_R = (double *)malloc(K * sizeof(double));
+    // double *data_W = (double *)malloc(K * sizeof(double));
     double *R = (double *)malloc(K * sizeof(double));
     double *W = (double *)malloc(K * sizeof(double));
-    double *data_RW = (double *)malloc(2 * K * sizeof(double));
-    double data_Z = 0;
+    // double *data_RW = (double *)malloc(2 * K * sizeof(double));
+    // double data_Z = 0;
     double *p_bar_before = (double *)malloc(2 * K * sizeof(double));
     double *p_bar = (double *)malloc(2 * K * sizeof(double));
     double L_before = par_L;
@@ -810,14 +846,16 @@ void short_solve(
 
     double *RW_diff = (double *)malloc(2 * K * sizeof(double));
 
+    // #region: CSV用コード
+
     // CSV：要素数取得&データ読み込み
     // int valid_elements = read_RW(K, par_L, eta, &data_RW, &data_Z);
 
-    for (size_t i = 0; i < K; ++i)
-    {
-        data_R[i] = data_RW[i];
-        data_W[i] = data_RW[K + i];
-    }
+    // for (size_t i = 0; i < K; ++i)
+    // {
+    //     data_R[i] = data_RW[i];
+    //     data_W[i] = data_RW[K + i];
+    // }
 
     // CSV：ディレクトリ作成(CSVファイルを格納するためのディレクトリを予め作らなくても済むように)
     // char dirpath[256];
@@ -827,9 +865,14 @@ void short_solve(
     //     exit(EXIT_FAILURE);
     // }
 
-    // CSV：作成するCSVファイルのパスを設定
+    //CSV：作成するCSVファイルのパスを設定
     // char csv_filepath[512];
+
+    // A.収束過程記録用ファイルのパス
     // snprintf(csv_filepath, sizeof(csv_filepath), "%s\\iteration_data.csv", dirpath);
+
+    // B.真値記録用ファイルのパス
+    // snprintf(csv_filepath, sizeof(csv_filepath), "%s\\test_data.csv", dirpath);
 
     // CSV：CSVファイルを開く
     // FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
@@ -842,11 +885,22 @@ void short_solve(
     // ★★★ ヘッダーの書き込みは、ファイルが新規作成された場合のみ ★★★
     // ファイルポインタの位置が0 (ファイルの先頭) なら、ファイルは空
 
-    // csvファイルに結果を書き込む要素をここで決める
+    // csvファイルに結果を書き込む要素を以下で決める
+
+    // A.収束過程記録用ファイルのパス
     // if (ftell(fp) == 0)
     // {
     //     fprintf(fp,"iteration,max_diff,R_max_diff,W_max_diff,Z_diff\n");
     // }
+
+    // B.真値記録用ファイルのパス
+    // if (ftell(fp) == 0)
+    // {
+    //     fprintf(fp, "RW,Z\n");
+    // }
+    // #endregion
+
+    // printf("[MEM] メモリ確保後: %zu bytes\n", get_total_allocated());
 
     for (int k = 0; k < short_itr; k++)
     {
@@ -915,6 +969,8 @@ void short_solve(
         //     break;
         // }
 
+        // #region: 数値実験用
+
         // for (size_t i = 0; i < 2 * K; i++)
         // {
         //     double diff = fabs((data_RW[i] - RW[i]) / RW[i]);
@@ -950,6 +1006,8 @@ void short_solve(
         // CSV：csvファイルに結果を書き込む
         // fprintf(fp, "%d,%.16f,%.16f,%.16f,%.16f\n",
         //     k + 1, max_diff, R_max_diff, W_max_diff, Z_diff);
+
+        // #endregion
 
         // Step 4: Adaptive restart
         short_dual_df(
@@ -1015,6 +1073,27 @@ void short_solve(
         }
     }
 
+    // #region: 真値記録用
+
+    // double Z_result = Z_SD(K, S_bar, coef_pi, coef_v,
+    //                        alpha_P1, alpha_P2, beta_P1, beta_P2,
+    //                        RW, nE, m, T_n, dR, dW);
+
+    // // RWの値を縦に記録
+    // for (size_t i = 0; i < 2 * K; i++)
+    // {
+    //     fprintf(fp, "%.16f", RW[i]); // RWの値を記録
+
+    //     // 最初の行のみ Z を記録
+    //     if (i == 0)
+    //     {
+    //         fprintf(fp, ",%.16f", Z_result); // Z を記録
+    //     }
+
+    //     fprintf(fp, "\n"); // 改行
+    // }
+    // #endregion
+
     // CSV：開いたCSVファイルを閉じる。
     // fclose(fp);
 
@@ -1030,10 +1109,14 @@ void short_solve(
 
     printf("g: %d\n", g);
 
-    // メモリの解放
+    // #region: メモリの解放
     free(RW_before);
+    free(R);
+    free(W);
     free(RW);
-    free(data_RW);
+    // free(data_R);
+    // free(data_W);
+    // free(data_RW);
     free(p_bar_before);
     free(p_bar);
     free(dR);
@@ -1043,6 +1126,9 @@ void short_solve(
     free(dW_dot);
     free(dRdW_dot);
     free(RW_diff);
+    // #endregion
+
+    // printf("[MEM] メモリ解法後: %zu bytes\n", get_total_allocated());
 }
 
 int main()
@@ -1061,12 +1147,12 @@ int main()
     const double p_proj = 1e-5;
     const double RW_proj = 1e-5;
     const double err_short = 1e-5;
-    const int short_itr = 1000;
+    const int short_itr = 100;
 
     //--- 数値実験のパラメータと結果の配列 (例) ---
-    int K_list[] = {2500};
-    double par_L[] = {0.0050};
-    double eta[] = {1.5000};
+    int K_list[] = {10000};
+    double par_L[] = {0.0050, 0.0080, 0.010, 0.020, 0.030, 0.050, 0.080};
+    double eta[] = {1.5000, 1.8000, 2.0000};
 
     int num_K = sizeof(K_list) / sizeof(K_list[0]);
     int num_L = sizeof(par_L) / sizeof(par_L[0]);
@@ -1088,11 +1174,10 @@ int main()
         double *R_hist = (double *)malloc(K * sizeof(double));
         double *W_hist = (double *)malloc(K * sizeof(double));
         double *RW_hist = (double *)malloc(2 * K * sizeof(double));
-        double *data_RW = (double *)malloc(2 * K * sizeof(double));
         double *m0 = (double *)malloc(K * sizeof(double));
 
         // メモリ確保のエラーチェック
-        if (R_hist == NULL || W_hist == NULL || RW_hist == NULL || data_RW == NULL || m0 == NULL)
+        if (R_hist == NULL || W_hist == NULL || RW_hist == NULL || m0 == NULL)
         {
             fprintf(stderr, "メモリの確保に失敗しました\n");
             exit(EXIT_FAILURE);
@@ -1268,7 +1353,6 @@ int main()
         free(R_hist);
         free(W_hist);
         free(RW_hist);
-        free(data_RW);
         free(m0);
         free(nE);
     }
