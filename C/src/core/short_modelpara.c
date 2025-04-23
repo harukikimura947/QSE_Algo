@@ -45,10 +45,10 @@ size_t get_total_allocated()
 // CSV：CSVファイルを格納する場所を設定。Windows想定です。
 // パラメータを網羅的に動かして実験をするために、ファイル名がパラメータごとに変わるようになっています。
 // #define FILENAME_TEMPLATE "C://Users//kimura//github_repo//QSE_Algo//C//data//experiment//modelpara//par_L=%.4f,eta=%.4f//1000iteration.csv"
-#define FILENAME_TEMPLATE "C://Users//kimura//github_repo//QSE_Algo//C//data//experiment//modelpara//E=%.4f//a1=%.4f,a2=%.4f,b1=%.4f,b2=%.4f//1000iteration.csv"
+#define FILENAME_TEMPLATE "C://Users//kimura//github_repo//QSE_Algo//C//data//experiment//modelpara//E=%d//a1=%.4f,a2=%.4f,b1=%.4f,b2=%.4f//1000iteration.csv"
 
 // CSV：RW配列とZを読み取る関数（実際に読み取った要素数を返す）
-int read_RW(size_t K, double A, double B, double **RW, double *Z)
+int read_RW(size_t K, int E, double alpha_1, double alpha_2, double beta_1, double beta_2, double **RW, double *Z)
 {
     // MAX_ELEMENTS を 2 * K として動的に決定
     size_t MAX_ELEMENTS = 2 * K;
@@ -62,7 +62,7 @@ int read_RW(size_t K, double A, double B, double **RW, double *Z)
     }
 
     char filename[256];
-    snprintf(filename, sizeof(filename), FILENAME_TEMPLATE, K, A, B);
+    snprintf(filename, sizeof(filename), FILENAME_TEMPLATE, E, alpha_1, alpha_2, beta_1, beta_2);
 
     FILE *file = fopen(filename, "r");
     if (!file)
@@ -796,8 +796,8 @@ void short_solve(
     double alpha_1, double alpha_2, double beta_1, double beta_2)
 {
     // タイマー開始
-    // clock_t start_clock = clock();
-    // int has_converged = 0;
+    clock_t start_clock = clock();
+    int has_converged = 0;
 
     double *RW_before = (double *)malloc(2 * K * sizeof(double));
     double *RW = (double *)malloc(2 * K * sizeof(double));
@@ -837,19 +837,19 @@ void short_solve(
 
     // #region: CSV用コード
 
-    // double *data_R = (double *)malloc(K * sizeof(double));
-    // double *data_W = (double *)malloc(K * sizeof(double));
-    // double *data_RW = (double *)malloc(2 * K * sizeof(double));
-    // double data_Z = 0;
+    double *data_R = (double *)malloc(K * sizeof(double));
+    double *data_W = (double *)malloc(K * sizeof(double));
+    double *data_RW = (double *)malloc(2 * K * sizeof(double));
+    double data_Z = 0;
 
     // CSV：要素数取得&データ読み込み
-    // int valid_elements = read_RW(K, par_L, eta, &data_RW, &data_Z);
+    int valid_elements = read_RW(K, E, alpha_1, alpha_2, beta_1, beta_2, &data_RW, &data_Z);
 
-    // for (size_t i = 0; i < K; ++i)
-    // {
-    //     data_R[i] = data_RW[i];
-    //     data_W[i] = data_RW[K + i];
-    // }
+    for (size_t i = 0; i < K; ++i)
+    {
+        data_R[i] = data_RW[i];
+        data_W[i] = data_RW[K + i];
+    }
 
     // CSV：ディレクトリ作成(CSVファイルを格納するためのディレクトリを予め作らなくても済むように)
     char dirpath[256];
@@ -863,10 +863,10 @@ void short_solve(
     char csv_filepath[512];
 
     // A.収束過程記録用ファイルのパス
-    // snprintf(csv_filepath, sizeof(csv_filepath), "%s\\iteration_data.csv", dirpath);
+    snprintf(csv_filepath, sizeof(csv_filepath), "%s\\iteration_data.csv", dirpath);
 
     // B.真値記録用ファイルのパス
-    snprintf(csv_filepath, sizeof(csv_filepath), "%s\\1000iteration.csv", dirpath);
+    // snprintf(csv_filepath, sizeof(csv_filepath), "%s\\1000iteration.csv", dirpath);
 
     // CSV：CSVファイルを開く
     FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
@@ -882,16 +882,16 @@ void short_solve(
     // csvファイルに結果を書き込む要素を以下で決める
 
     // A.収束過程記録用ファイルのパス
-    // if (ftell(fp) == 0)
-    // {
-    //     fprintf(fp,"iteration,max_diff,R_max_diff,W_max_diff,Z_diff\n");
-    // }
-
-    // B.真値記録用ファイルのパス
     if (ftell(fp) == 0)
     {
-        fprintf(fp, "RW,Z\n");
+        fprintf(fp,"iteration,max_diff,R_max_diff,W_max_diff,Z_diff\n");
     }
+
+    // B.真値記録用ファイルのパス
+    // if (ftell(fp) == 0)
+    // {
+    //     fprintf(fp, "RW,Z\n");
+    // }
     // #endregion
 
     // printf("[MEM] メモリ確保後: %zu bytes\n", get_total_allocated());
@@ -936,12 +936,12 @@ void short_solve(
 
         //数値実験の結果として、変数の相対誤差を測定する
         double max_diff = 0.0;
-        // double R_max_diff = 0.0;
-        // double W_max_diff = 0.0;
+        double R_max_diff = 0.0;
+        double W_max_diff = 0.0;
 
-        // double Z_now = Z_SD(K, S_bar, coef_pi, coef_v,
-        //                 alpha_P1, alpha_P2, beta_P1, beta_P2,
-        //                 RW, nE, m, T_n, dR, dW);
+        double Z_now = Z_SD(K, S_bar, coef_pi, coef_v,
+                        alpha_P1, alpha_P2, beta_P1, beta_P2,
+                        RW, nE, m, T_n, dR, dW);
 
         for (size_t i = 0; i < K; ++i)
         {
@@ -965,48 +965,48 @@ void short_solve(
 
         // #region: 数値実験用
 
-        // for (size_t i = 0; i < 2 * K; i++)
-        // {
-        //     double diff = fabs((data_RW[i] - RW[i]) / data_RW[i]);
-        //     if (diff > max_diff)
-        //     {
-        //         max_diff = diff;
-        //     }
-        // }
+        for (size_t i = 0; i < 2 * K; i++)
+        {
+            double diff = fabs((data_RW[i] - RW[i]) / data_RW[i]);
+            if (diff > max_diff)
+            {
+                max_diff = diff;
+            }
+        }
 
-        // // 変数Rの相対誤差の最大値を測定
-        // for (size_t i = 0; i < K; i++)
-        // {
-        //     double R_diff = fabs((data_R[i] - R[i]) / data_R[i]);
-        //     if (R_diff > R_max_diff)
-        //     {
-        //         R_max_diff = R_diff;
-        //     }
-        // }
+        // 変数Rの相対誤差の最大値を測定
+        for (size_t i = 0; i < K; i++)
+        {
+            double R_diff = fabs((data_R[i] - R[i]) / data_R[i]);
+            if (R_diff > R_max_diff)
+            {
+                R_max_diff = R_diff;
+            }
+        }
 
-        // // 変数Wの相対誤差の最大値を測定
-        // for (size_t i = 0; i < K; i++)
-        // {
-        //     double W_diff = fabs((data_W[i] - W[i]) / data_W[i]);
-        //     if (W_diff > W_max_diff)
-        //     {
-        //         W_max_diff = W_diff;
-        //     }
-        // }
+        // 変数Wの相対誤差の最大値を測定
+        for (size_t i = 0; i < K; i++)
+        {
+            double W_diff = fabs((data_W[i] - W[i]) / data_W[i]);
+            if (W_diff > W_max_diff)
+            {
+                W_max_diff = W_diff;
+            }
+        }
 
-        // // 目的関数Zの相対誤差を測定
-        // double Z_diff = fabs((data_Z - Z_now) / data_Z);
+        // 目的関数Zの相対誤差を測定
+        double Z_diff = fabs((data_Z - Z_now) / data_Z);
 
         // 収束時間の記録（最初に条件を満たしたときだけ）
-        // if (!has_converged && Z_diff < 1e-4)
-        // {
-        //     *cpu_time_until_converged = (double)(clock() - start_clock) / CLOCKS_PER_SEC;
-        //     has_converged = 1;
-        // }
+        if (!has_converged && Z_diff < 1e-4)
+        {
+            *cpu_until_converged = (double)(clock() - start_clock) / CLOCKS_PER_SEC;
+            has_converged = 1;
+        }
 
         // CSV：csvファイルに結果を書き込む
-        // fprintf(fp, "%d,%.16f,%.16f,%.16f,%.16f\n",
-        //     k + 1, max_diff, R_max_diff, W_max_diff, Z_diff);
+        fprintf(fp, "%d,%.16f,%.16f,%.16f,%.16f\n",
+            k + 1, max_diff, R_max_diff, W_max_diff, Z_diff);
 
         // #endregion
 
@@ -1076,23 +1076,23 @@ void short_solve(
 
     // #region: 真値記録用
 
-    double Z_result = Z_SD(K, S_bar, coef_pi, coef_v,
-                           alpha_P1, alpha_P2, beta_P1, beta_P2,
-                           RW, nE, m, T_n, dR, dW);
+    // double Z_result = Z_SD(K, S_bar, coef_pi, coef_v,
+    //                        alpha_P1, alpha_P2, beta_P1, beta_P2,
+    //                        RW, nE, m, T_n, dR, dW);
 
-    // RWの値を縦に記録
-    for (size_t i = 0; i < 2 * K; i++)
-    {
-        fprintf(fp, "%.16f", RW[i]); // RWの値を記録
+    // // RWの値を縦に記録
+    // for (size_t i = 0; i < 2 * K; i++)
+    // {
+    //     fprintf(fp, "%.16f", RW[i]); // RWの値を記録
 
-        // 最初の行のみ Z を記録
-        if (i == 0)
-        {
-            fprintf(fp, ",%.16f", Z_result); // Z を記録
-        }
+    //     // 最初の行のみ Z を記録
+    //     if (i == 0)
+    //     {
+    //         fprintf(fp, ",%.16f", Z_result); // Z を記録
+    //     }
 
-        fprintf(fp, "\n"); // 改行
-    }
+    //     fprintf(fp, "\n"); // 改行
+    // }
     // #endregion
 
     // CSV：開いたCSVファイルを閉じる。
@@ -1111,19 +1111,19 @@ void short_solve(
     printf("g: %d\n", g);
 
     // 収束しなかった場合のために初期値セット（任意）
-    // if (!has_converged)
-    // {
-    //     *cpu_time_until_converged = -1.0;
-    // }
+    if (!has_converged)
+    {
+        *cpu_until_converged = -1.0;
+    }
 
     // #region: メモリの解放
     free(RW_before);
     free(R);
     free(W);
     free(RW);
-    // free(data_R);
-    // free(data_W);
-    // free(data_RW);
+    free(data_R);
+    free(data_W);
+    free(data_RW);
     free(p_bar_before);
     free(p_bar);
     free(dR);
