@@ -785,11 +785,11 @@ double backtracking(
 }
 
 void short_solve(
-    int K, double S_bar,
+    int K, double S_bar, int E, 
     double alpha_P1, double alpha_P2, double beta_P1, double beta_P2,
     double coef_R_alpha, double coef_W_alpha, double coef_R_beta, double coef_W_beta,
     double coef_pi, double coef_v,
-    double *nE, double *m0, double **T_n,
+    double *nE, double *m, double **T_n,
     double RW_proj, double p_proj, double par_L, double eta,
     double *R_hist, double *W_hist, int *g_out,
     double err_short, int short_itr, double *cpu_until_converged,
@@ -1151,7 +1151,7 @@ typedef struct
 int main()
 {
     // --- 定数パラメータ ---
-    const int K = 4;
+    const int K = 10000;
     const double M = 1.0;
     const double N = 1.0;
     const double alter_T_num = 0.5;
@@ -1161,10 +1161,10 @@ int main()
     const double RW_proj = 1e-5;
     const double err_short = 1e-5;
     const int short_itr = 1000;
-    // const double par_L_value = 0.0080;
-    // const double eta_value = 1.5;
-    const double par_L_value = 0.2000;
+    const double par_L_value = 0.0080;
     const double eta_value = 1.5;
+    // const double par_L_value = 0.2000;
+    // const double eta_value = 1.5;
 
     double S_bar = S_total / K;
     int int_Col = (int)sqrt(K);
@@ -1305,7 +1305,7 @@ int main()
 
         start = clock();
         short_solve(
-            K, S_bar,
+            K, S_bar, E,
             alpha_P1, alpha_P2, beta_P1, beta_P2,
             coef_R_alpha, coef_W_alpha, coef_R_beta, coef_W_beta,
             coef_pi, coef_v,
