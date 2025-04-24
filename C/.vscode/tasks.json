@@ -6,9 +6,9 @@
             "type": "shell",
             "command": "g++",
             "args": [
-                "main.cpp",
+                "src/core/main.cpp",
                 "-o",
-                "main.exe",
+                "src/core/main.exe",
                 "-IC:\\mingw64\\lib\\OpenBLAS\\include",
                 "-LC:\\mingw64\\lib\\OpenBLAS\\lib",
                 "-lopenblas"
@@ -26,6 +26,28 @@
             "problemMatcher": [
                 "$gcc"
             ]
+        },
+        {
+            "label": "Run Any EXE from src/core with Logging",
+            "type": "shell",
+            "command": "cmd",
+            "args": [
+                "/c",
+                "set /p exe_name=Enter EXE name (without .exe): && " +
+                "set datetime=%DATE:~0,4%%DATE:~5,2%%DATE:~8,2%_%TIME:~0,2%%TIME:~3,2%%TIME:~6,2% && " +
+                "set datetime=%datetime: =0% && " +
+                "cd src\\core && %exe_name%.exe > ..\\..\\logs\\%exe_name%_%datetime%.log 2>&1"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "panel": "shared",
+                "focus": false
+            }
         }
     ]
 }

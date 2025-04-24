@@ -809,15 +809,11 @@ void short_solve(
     double RW_proj, double p_proj, double par_L, double eta,
     double R_hist[], double W_hist[], int *g_out,
     double err_short, int short_itr,
-    double *cpu_until_converged,
-    int *iteration_until_converged)
+    double *cpu_time_until_converged)
 {
     // タイマー開始
-    clock_t start_clock = clock();
-    int has_converged = 0;
-
-    int converged_k = -1;
-    double converged_cpu = -1.0;
+    // clock_t start_clock = clock();
+    // int has_converged = 0;
 
     double *RW_before = (double *)malloc(2 * K * sizeof(double));
     double *RW = (double *)malloc(2 * K * sizeof(double));
@@ -857,53 +853,38 @@ void short_solve(
 
     // #region: CSV用コード
 
-    double *data_R = (double *)malloc(K * sizeof(double));
-    double *data_W = (double *)malloc(K * sizeof(double));
-    double *data_RW = (double *)malloc(2 * K * sizeof(double));
-    double data_Z = 0;
-
-    // CSV：要素数取得&データ読み込み
-    int valid_elements = read_RW(K, par_L, eta, &data_RW, &data_Z);
-
-    for (size_t i = 0; i < K; ++i)
-    {
-        data_R[i] = data_RW[i];
-        data_W[i] = data_RW[K + i];
-    }
-
     // CSV：ディレクトリ作成(CSVファイルを格納するためのディレクトリを予め作らなくても済むように)
-    char dirpath[256];
-    if (create_parameter_directory("C:\\Users", K, par_L, eta, dirpath) != 0)
-    {
-        fprintf(stderr, "Error creating directory\n");
-        exit(EXIT_FAILURE);
-    }
+    // char dirpath[256];
+    // if (create_parameter_directory("C:\\Users", K, par_L, eta, dirpath) != 0)
+    // {
+    //     fprintf(stderr, "Error creating directory\n");
+    //     exit(EXIT_FAILURE);
+    // }
 
     //CSV：作成するCSVファイルのパスを設定
-    char csv_filepath[512];
+    // char csv_filepath[512];
 
-    // A.収束過程記録用ファイルのパス
-    snprintf(csv_filepath, sizeof(csv_filepath), "%s\\iteration_data.csv", dirpath);
+    // B.真値記録用ファイルのパス
+    // snprintf(csv_filepath, sizeof(csv_filepath), "%s\\1000iteration.csv", dirpath);
 
     // CSV：CSVファイルを開く
-    FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
-    if (fp == NULL)
-    {
-        perror("Error opening file");
-        exit(EXIT_FAILURE);
-    }
+    // FILE *fp = fopen(csv_filepath, "w"); // "a" は追記モード, "w"は上書きモード。通常はwでオーケー。
+    // if (fp == NULL)
+    // {
+    //     perror("Error opening file");
+    //     exit(EXIT_FAILURE);
+    // }
 
     // ★★★ ヘッダーの書き込みは、ファイルが新規作成された場合のみ ★★★
     // ファイルポインタの位置が0 (ファイルの先頭) なら、ファイルは空
 
     // csvファイルに結果を書き込む要素を以下で決める
 
-    // A.収束過程記録用ファイルのパス
-    if (ftell(fp) == 0)
-    {
-        fprintf(fp,"iteration,max_diff,R_max_diff,W_max_diff,Z_diff\n");
-    }
-
+    // B.真値記録用ファイルのパス
+    // if (ftell(fp) == 0)
+    // {
+    //     fprintf(fp, "RW,Z\n");
+    // }
     // #endregion
 
     // printf("[MEM] メモリ確保後: %zu bytes\n", get_total_allocated());
@@ -945,85 +926,6 @@ void short_solve(
         }
 
         // Step 3: 収束判定
-
-        //数値実験の結果として、変数の相対誤差を測定する
-        double max_diff = 0.0;
-        double R_max_diff = 0.0;
-        double W_max_diff = 0.0;
-
-        double Z_now = Z_SD(K, S_bar, coef_pi, coef_v,
-                        alpha_P1, alpha_P2, beta_P1, beta_P2,
-                        RW, nE, m, T_n, dR, dW);
-
-        for (size_t i = 0; i < K; ++i)
-        {
-            R[i] = RW[i];
-            W[i] = RW[K + i];
-        }
-
-        // for (size_t i = 0; i < 2 * K; i++)
-        // {
-        //     double diff = fabs((RW[i] - RW_before[i]) / RW_before[i]);
-        //     if (diff > max_diff)
-        //     {
-        //         max_diff = diff;
-        //     }
-        // }
-
-        // if (max_diff < 1e-4)
-        // {
-        //     break;
-        // }
-
-        // #region: 数値実験用
-
-        for (size_t i = 0; i < 2 * K; i++)
-        {
-            double diff = fabs((data_RW[i] - RW[i]) / data_RW[i]);
-            if (diff > max_diff)
-            {
-                max_diff = diff;
-            }
-        }
-
-        // 変数Rの相対誤差の最大値を測定
-        for (size_t i = 0; i < K; i++)
-        {
-            double R_diff = fabs((data_R[i] - R[i]) / data_R[i]);
-            if (R_diff > R_max_diff)
-            {
-                R_max_diff = R_diff;
-            }
-        }
-
-        // 変数Wの相対誤差の最大値を測定
-        for (size_t i = 0; i < K; i++)
-        {
-            double W_diff = fabs((data_W[i] - W[i]) / data_W[i]);
-            if (W_diff > W_max_diff)
-            {
-                W_max_diff = W_diff;
-            }
-        }
-
-        // // 目的関数Zの相対誤差を測定
-        double Z_diff = fabs((data_Z - Z_now) / data_Z);
-
-        // 収束時間の記録（最初に条件を満たしたときだけ）
-        if (!has_converged && Z_diff < 1e-4)
-        {
-            converged_cpu = (double)(clock() - start_clock) / CLOCKS_PER_SEC;
-            converged_k = k + 1;
-            *cpu_until_converged = converged_cpu;
-            *iteration_until_converged = converged_k;
-            has_converged = 1;
-        }
-
-        // CSV：csvファイルに結果を書き込む
-        fprintf(fp, "%d,%.16f,%.16f,%.16f,%.16f\n",
-            k + 1, max_diff, R_max_diff, W_max_diff, Z_diff);
-
-        // #endregion
 
         // Step 4: Adaptive restart
         short_dual_df(
@@ -1089,15 +991,29 @@ void short_solve(
         }
     }
 
-    // ループ終了後にCSV追記（fcloseの前！）
-    if (converged_k != -1)
-    {
-        fprintf(fp, "# converged_iteration: %d\n", converged_k);
-        fprintf(fp, "# converged_cpu_time: %.6f\n", converged_cpu);
-    }
+    // #region: 真値記録用
+
+    // double Z_result = Z_SD(K, S_bar, coef_pi, coef_v,
+    //                        alpha_P1, alpha_P2, beta_P1, beta_P2,
+    //                        RW, nE, m, T_n, dR, dW);
+
+    // RWの値を縦に記録
+    // for (size_t i = 0; i < 2 * K; i++)
+    // {
+    //     fprintf(fp, "%.16f", RW[i]); // RWの値を記録
+
+    //     // 最初の行のみ Z を記録
+    //     if (i == 0)
+    //     {
+    //         fprintf(fp, ",%.16f", Z_result); // Z を記録
+    //     }
+
+    //     fprintf(fp, "\n"); // 改行
+    // }
+    // #endregion
 
     // CSV：開いたCSVファイルを閉じる。
-    fclose(fp);
+    // fclose(fp);
 
     *g_out = g;
 
@@ -1111,21 +1027,11 @@ void short_solve(
 
     printf("g: %d\n", g);
 
-    // 収束しなかった場合のために初期値セット（任意）
-    if (!has_converged)
-    {
-        *cpu_until_converged = -1.0;
-        *iteration_until_converged = -1;
-    }
-
     // #region: メモリの解放
     free(RW_before);
     free(R);
     free(W);
     free(RW);
-    free(data_R);
-    free(data_W);
-    free(data_RW);
     free(p_bar_before);
     free(p_bar);
     free(dR);
@@ -1169,43 +1075,31 @@ int main()
     const int short_itr = 1000;
 
     // --- 実験設定の初期化 ---
-    // double par_L1[] = {0.2000};
-    // double eta1[] = {1.5000};
-
-    // ExperimentSetting settings[] = {
-    //     {4, par_L1, 1, eta1, 1},
-    // };
-
-    double par_L1[] = {0.0050};
-    double eta1[] = {1.8000};
-
-    double par_L2[] = {0.0080};
-    double eta2[] = {1.8000};
-
-    double par_L3[] = {0.0050};
-    double eta3[] = {1.8000};
-
-    double par_L4[] = {0.0080};
-    double eta4[] = {1.5000};
-
-    double par_L5[] = {0.0050};
-    double eta5[] = {1.5000};
-
-    double par_L6[] = {0.0050};
-    double eta6[] = {1.8000};
-
-    double par_L7[] = {0.0080};
-    double eta7[] = {1.5000};
+    double par_L1[] = {0.2000};
+    double eta1[] = {1.5000};
 
     ExperimentSetting settings[] = {
-        {2500, par_L1, 1, eta1, 1},
-        {2500, par_L2, 1, eta2, 1},
-        {3600, par_L3, 1, eta3, 1},
-        {4900, par_L4, 1, eta4, 1},
-        {6400, par_L5, 1, eta5, 1},
-        {8100, par_L6, 1, eta6, 1},
-        {10000, par_L7, 1, eta7, 1},
+        {4, par_L1, 1, eta1, 1},
     };
+
+    // double par_L1[] = {0.0080};
+    // double eta1[] = {1.5000};
+
+    // double par_L2[] = {0.0080};
+    // double eta2[] = {1.8000};
+
+    // double par_L3[] = {0.0050};
+    // double eta3[] = {1.8000};
+
+    // double par_L4[] = {0.0080};
+    // double eta4[] = {1.8000};
+
+    // ExperimentSetting settings[] = {
+    //     {10000, par_L1, 1, eta1, 1},
+    //     {10000, par_L2, 1, eta2, 1},
+    //     {2500, par_L3, 1, eta3, 1},
+    //     {2500, par_L4, 1, eta4, 1},
+    // };
 
     int num_settings = sizeof(settings) / sizeof(settings[0]);
 
@@ -1349,7 +1243,6 @@ int main()
 
         int g_out = 0;
         int *g_out_ptr = &g_out;
-        int iteration_until_converged;
         double cpu_until_converged = -1.0;
 
         // --- パラメータ毎の実験 ---
@@ -1374,22 +1267,11 @@ int main()
                     nE, m0, T_n,
                     RW_proj, p_proj, par_L_value, eta_value,
                     R_hist, W_hist, g_out_ptr,
-                    err_short, short_itr, &cpu_until_converged, &iteration_until_converged);
+                    err_short, short_itr, &cpu_until_converged);
 
                 end = clock();
                 cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
                 printf("CPU time used: %f seconds\n", cpu_time_used);
-
-                if (cpu_until_converged >= 0.0)
-                {
-                    printf("Z誤差が1e-4を下回った時点のCPU時間: %.6f 秒\n", cpu_until_converged);
-                }
-                else
-                {
-                    printf("Z誤差が1e-4未満には収束しませんでした。\n");
-                }
-
-                printf("収束までのイテレーション数: %d回\n", iteration_until_converged);
             }
         }
 
@@ -1417,245 +1299,3 @@ int main()
 
     return 0;
 }
-
-// int main()
-// {
-//     // 定数パラメータの定義
-//     const int E = 5;
-//     const double M = 1.0;
-//     const double N = 1.0;
-//     const double alter_T_num = 0.5;
-//     const double S_total = 100;
-//     const double t = 0.1;
-//     const double alpha_1 = 0.4;
-//     const double alpha_2 = 0.4;
-//     const double beta_1 = 0.4;
-//     const double beta_2 = 0.4;
-//     const double p_proj = 1e-5;
-//     const double RW_proj = 1e-5;
-//     const double err_short = 1e-5;
-//     const int short_itr = 1000;
-
-//     //--- 数値実験のパラメータと結果の配列 (例) ---
-//     // int K_list[] = {8100};
-//     // double par_L[] = {0.0050};
-//     // double eta[] = {1.8000};
-
-//     // int num_K = sizeof(K_list) / sizeof(K_list[0]);
-//     // int num_L = sizeof(par_L) / sizeof(par_L[0]);
-//     // int num_eta = sizeof(eta) / sizeof(eta[0]);
-
-//     // --- Kごとの設定 ---
-//     double par_L_2500[] = {0.0050};
-//     double eta_2500[] = {1.5000};
-
-//     double par_L_3600[] = {0.0080};
-//     double eta_3600[] = {1.8000};
-
-//     ExperimentSetting settings[] = {
-//         {2500, par_L_2500, 1, eta_2500, 1},
-//         {3600, par_L_3600, 1, eta_3600, 1}};
-
-//     int num_settings = sizeof(settings) / sizeof(settings[0]);
-
-//     clock_t start, end;
-//     double cpu_time_used;
-
-//     for (int s = 0; s < num_settings; s++)
-//     {
-//         const size_t Col = sqrt(K_list[pk]);
-//         const size_t K = Col * Col;
-//         const int int_Col = Col;
-//         const int int_K = int_Col * int_Col;
-//         const double Scaling = 10.0 / int_Col;
-//         const double S_bar = S_total / int_K;
-
-//         // 動的配列の確保
-//         double *R_hist = (double *)malloc(K * sizeof(double));
-//         double *W_hist = (double *)malloc(K * sizeof(double));
-//         double *RW_hist = (double *)malloc(2 * K * sizeof(double));
-//         double *m0 = (double *)malloc(K * sizeof(double));
-
-//         // メモリ確保のエラーチェック
-//         if (R_hist == NULL || W_hist == NULL || RW_hist == NULL || m0 == NULL)
-//         {
-//             fprintf(stderr, "メモリの確保に失敗しました\n");
-//             exit(EXIT_FAILURE);
-//         }
-
-//         // 動的領域に確保
-//         double **Coordinate_Data = malloc(K * sizeof(double *));
-//         double **distance_matrix = malloc(K * sizeof(double *));
-//         double **T = malloc(K * sizeof(double *));
-//         double **T_n = malloc(K * sizeof(double *));
-//         double **n0 = malloc(K * sizeof(double *));
-
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             Coordinate_Data[i] = malloc(2 * sizeof(double));
-//             distance_matrix[i] = malloc(K * sizeof(double));
-//             T[i] = malloc(K * sizeof(double));
-//             T_n[i] = malloc(K * sizeof(double));
-//             n0[i] = malloc(K * sizeof(double));
-//         }
-
-//         // 座標データの生成
-//         for (int i = 0; i < int_K; i++)
-//         {
-//             Coordinate_Data[i][0] = (i % int_Col) * Scaling;
-//             Coordinate_Data[i][1] = (i / int_Col) * Scaling;
-//         }
-
-//         // 距離行列の作成
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             for (size_t j = 0; j < K; j++)
-//             {
-//                 double dx = Coordinate_Data[i][0] - Coordinate_Data[j][0];
-//                 double dy = Coordinate_Data[i][1] - Coordinate_Data[j][1];
-//                 distance_matrix[i][j] = sqrt(dx * dx + dy * dy);
-//             }
-//         }
-
-//         // Compute alpha and beta related parameters
-//         double alpha_12 = 1.0 - alpha_1 - alpha_2;
-//         double alpha_inv_12 = 1.0 / alpha_12;
-//         double alpha_P1 = alpha_1 * alpha_inv_12;
-//         double alpha_P2 = alpha_2 * alpha_inv_12;
-
-//         double alpha_1_P1 = pow(alpha_1, alpha_P1);
-//         double alpha_2_P2 = pow(alpha_2, alpha_P2);
-//         double alpha_1_PP1 = pow(alpha_1, alpha_P1 + 1);
-//         double alpha_2_PP2 = pow(alpha_2, alpha_P2 + 1);
-
-//         double coef_R_alpha = alpha_2_P2 * alpha_1_PP1;
-//         double coef_W_alpha = alpha_1_P1 * alpha_2_PP2;
-
-//         double beta_12 = 1.0 - beta_1 - beta_2;
-//         double beta_inv_12 = 1.0 / beta_12;
-//         double beta_P1 = beta_1 * beta_inv_12;
-//         double beta_P2 = beta_2 * beta_inv_12;
-
-//         double beta_1_P1 = pow(beta_1, beta_P1);
-//         double beta_2_P2 = pow(beta_2, beta_P2);
-//         double beta_1_PP1 = pow(beta_1, beta_P1 + 1);
-//         double beta_2_PP2 = pow(beta_2, beta_P2 + 1);
-
-//         double coef_R_beta = beta_2_P2 * beta_1_PP1;
-//         double coef_W_beta = beta_1_P1 * beta_2_PP2;
-
-//         double coef_pi = beta_12 * beta_1_P1 * beta_2_P2;
-//         double coef_v = alpha_12 * alpha_1_P1 * alpha_2_P2;
-
-//         double *nE = (double *)malloc(K * sizeof(double));
-
-//         // メモリ確保のエラーチェック
-//         if (nE == NULL)
-//         {
-//             fprintf(stderr, "メモリの確保に失敗しました\n");
-//             exit(EXIT_FAILURE);
-//         }
-
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             for (size_t j = 0; j < K; j++)
-//             {
-//                 n0[i][j] = N / (int_K * int_K);
-//             }
-//         }
-
-//         // T行列とD行列の計算
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             for (size_t j = 0; j < K; j++)
-//             {
-//                 T[i][j] = fmax(Scaling * t * alter_T_num, t * distance_matrix[i][j]);
-//             }
-//         }
-
-//         // Compute T_n
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             for (size_t j = 0; j < K; j++)
-//             {
-//                 T_n[i][j] = pow(1.0 / exp(T[i][j]), alpha_inv_12) * n0[i][j];
-//             }
-//         }
-
-//         // Compute nE
-//         for (size_t j = 0; j < K; j++)
-//         {
-//             nE[j] = 0.0;
-//             for (size_t i = 0; i < K; i++)
-//             {
-//                 nE[j] += E * n0[i][j];
-//             }
-//         }
-
-//         // 初期化
-//         double m_per = M / int_K;
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             m0[i] = m_per;
-//         }
-
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             R_hist[i] = 0.0;
-//             W_hist[i] = 0.0;
-//         }
-
-//         int g_out = 0;
-//         int *g_out_ptr = &g_out;
-
-//         for (int p1 = 0; p1 < num_L; p1++)
-//         {
-//             for (int p2 = 0; p2 < num_eta; p2++)
-//             {
-//                 printf("K: %d\n", K_list[pk]);
-//                 printf("par_L: %f\n", par_L[p1]);
-//                 printf("eta: %f\n", eta[p2]);
-
-//                 start = clock();
-
-//                 short_solve(
-//                     K, S_bar,
-//                     alpha_P1, alpha_P2, beta_P1, beta_P2,
-//                     coef_R_alpha, coef_W_alpha, coef_R_beta, coef_W_beta,
-//                     coef_pi, coef_v,
-//                     nE, m0, T_n,
-//                     RW_proj, p_proj, par_L[p1], eta[p2],
-//                     R_hist, W_hist, g_out_ptr,
-//                     err_short, short_itr);
-
-//                 end = clock();
-//                 cpu_time_used = ((double)(end - start)) / CLOCKS_PER_SEC;
-//                 printf("CPU time used: %f seconds\n", cpu_time_used);
-//             }
-//         }
-
-//         // メモリの解放
-//         for (size_t i = 0; i < K; i++)
-//         {
-//             free(Coordinate_Data[i]);
-//             free(distance_matrix[i]);
-//             free(T[i]);
-//             free(T_n[i]);
-//             free(n0[i]);
-//         }
-
-//         free(Coordinate_Data);
-//         free(distance_matrix);
-//         free(T);
-//         free(T_n);
-//         free(n0);
-
-//         free(R_hist);
-//         free(W_hist);
-//         free(RW_hist);
-//         free(m0);
-//         free(nE);
-//     }
-
-//     return 0;
-// }

@@ -22,3 +22,21 @@
     }
   ]
 }
+
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Log付きで任意のEXEを実行",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}\\run_with_log.bat",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "externalConsole": true,
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb.exe"
+    }
+  ]
+}
