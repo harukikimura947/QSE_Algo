@@ -44,12 +44,7 @@ run_with_log.bat
 
 ### 🎯 目的関数（ZSD）
 
-\[
-\min_{R, W \geq 0} \quad ZSD(R, W \mid m, n) = 
-\sum_i [\pi_i(R_i, W_i) - A_i] m_i + 
-\sum_{i, j} v_{ij}(R_i, W_j) n_{ij} + 
-\sum_i \bar{S}_i R_i
-\]
+![image](https://github.com/user-attachments/assets/2f14e05d-b1c0-4a09-ab15-8ffa95b386ad)
 
 - \( R_i \)：地点 \(i\) における地価  
 - \( W_j \)：地点 \(j\) における賃金  
